@@ -1,0 +1,20 @@
+# Environments
+.venv/
+venv/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Example output
+*.wav
+*.pcm
+*.mp3
+
+# Local-only tooling and agent instructions; never published
+.local/
+CLAUDE.md
