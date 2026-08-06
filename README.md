@@ -26,7 +26,7 @@ The repo has two kinds of content, matching the two ways developers use Chariot:
 - **[Quickstarts](./quickstarts)**: the smallest working program for each API surface. Start here to see the API itself.
 - **[Integrations](./integrations)**: Chariot inside the frameworks you already build voice apps with. Each one ships a drop-in service class plus a runnable demo.
 
-**Console and API keys:** [platform.chariot.in](https://platform.chariot.in) · **Site:** [chariot.in](https://chariot.in)
+**API docs:** [docs.chariot.in](https://docs.chariot.in/api-reference/introduction) · **Console and API keys:** [platform.chariot.in](https://platform.chariot.in) · **Site:** [chariot.in](https://chariot.in)
 
 ---
 
