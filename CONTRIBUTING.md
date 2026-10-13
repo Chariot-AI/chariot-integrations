@@ -4,10 +4,10 @@ Thanks for helping developers build with Chariot. A few rules keep this repo use
 
 ## What an example looks like
 
-Each example is one self-contained folder. Quickstarts (under `quickstarts/`) teach one API surface; integrations (under `integrations/`) ship a drop-in service class for one framework plus a runnable demo.
+Each example is one self-contained folder. Quickstarts (under `quickstarts/`) teach one API surface; integrations (under `integrations/`) ship a drop-in service class for one framework plus a runnable demo. Customer diagnostics live under `tools/` with documented measurement boundaries and the same self-contained setup.
 
 ```
-quickstarts/<api-surface>/     or     integrations/<framework>/
+quickstarts/<api-surface>/     or     integrations/<framework>/     or     tools/<tool>/
   README.md          what it does, how to run it, what to try
   .env.sample        every variable the example reads, with placeholder values
   requirements.txt   its own dependencies (Python) or package.json (JS)

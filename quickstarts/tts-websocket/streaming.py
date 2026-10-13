@@ -14,19 +14,19 @@ Usage:
     python streaming.py "Hello. How are you today?" --stream
 """
 
+import argparse
 import asyncio
 import json
 import os
 import sys
 import wave
+from urllib.parse import urlencode
 
 import websockets
 from dotenv import load_dotenv
 
 load_dotenv()
 
-API_KEY = os.environ["CHARIOT_API_KEY"]
-VOICE_ID = os.environ["CHARIOT_VOICE_ID"]
 OUT_PATH = "out.wav"
 FRAGMENT_CHARS = 12  # roughly what an LLM hands you per few tokens
 
@@ -48,20 +48,18 @@ def fragment(text: str, size: int) -> list[str]:
     return pieces
 
 
-async def run(text: str, stream_mode: bool) -> None:
+async def run(text: str, stream_mode: bool, model: str) -> None:
     # Generation is flush-driven: the server buffers text until input.flush
     # or input.done, then synthesizes the buffer as one piece. When you flush
     # is the whole segmentation story, and it is under your control.
-    uri = (
-        "wss://api.chariot.in/v1/tts/ws"
-        f"?voice_id={VOICE_ID}&response_format=pcm"
-    )
+    query = urlencode({"voice_id": os.environ["CHARIOT_VOICE_ID"], "response_format": "pcm", "model_type": model})
+    uri = f"wss://api.chariot.in/v1/tts/ws?{query}"
 
     audio = bytearray()
     sample_rate = 44100  # the server's audio.start declaration overrides this
 
     async with websockets.connect(
-        uri, additional_headers={"chariotai-api-key": API_KEY}, max_size=None
+        uri, additional_headers={"chariotai-api-key": os.environ["CHARIOT_API_KEY"]}, max_size=None
     ) as ws:
 
         async def send_text() -> None:
@@ -108,8 +106,10 @@ async def run(text: str, stream_mode: bool) -> None:
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    stream_mode = "--stream" in args
-    args = [a for a in args if a != "--stream"]
     default_text = "Hello from Chariot. This is the streaming API, speaking as it thinks."
-    asyncio.run(run(args[0] if args else default_text, stream_mode))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("text", nargs="?", default=default_text)
+    parser.add_argument("--stream", action="store_true")
+    parser.add_argument("--model", default=os.getenv("CHARIOT_MODEL", "chariot-multilingual-v1"))
+    args = parser.parse_args()
+    asyncio.run(run(args.text, args.stream, args.model))

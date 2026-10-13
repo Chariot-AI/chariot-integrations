@@ -19,6 +19,7 @@ curl -s https://api.chariot.in/v1/voices -H "chariotai-api-key: YOUR_API_KEY"
 
 ```bash
 python tts.py "Hello from Chariot. Namaste!"
+python tts.py "Hello from Chariot." --model chariot-multilingual-v1
 ```
 
 Writes `hello.wav` to the current directory. The equivalent curl:
@@ -27,10 +28,17 @@ Writes `hello.wav` to the current directory. The equivalent curl:
 curl -X POST https://api.chariot.in/v1/tts \
   -H "chariotai-api-key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"voice_id": "YOUR_VOICE_ID", "text": "Hello from Chariot. Namaste!"}' \
+  -d '{"voice_id": "YOUR_VOICE_ID", "text": "Hello from Chariot. Namaste!", "model_type": "chariot-multilingual-v1"}' \
   --output hello.wav
 ```
 
-## When to use the WebSocket instead
+`--model` overrides `CHARIOT_MODEL` (default: `chariot-multilingual-v1`). Choose a voice whose
+`models[].model` includes the requested model, then send that value as
+`model_type`. See [Models](https://docs.chariot.in/guides/models).
 
-If a person is listening while the speech is made (an assistant, an agent, a reader), use the [tts-websocket quickstart](../tts-websocket): audio starts streaming back before generation finishes.
+## Streaming audio
+
+Use [HTTP streaming](../tts-stream) when the full text is available and audio
+should arrive progressively. Use [WebSocket](../tts-websocket) when text arrives
+incrementally, such as from an LLM. Compare first-audio latency with the
+[latency tool](../../tools/latency).
