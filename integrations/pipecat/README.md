@@ -5,7 +5,7 @@ Use Chariot's streaming text-to-speech inside a [Pipecat](https://github.com/pip
 Two things live here:
 
 - **`chariot_tts.py`**: `ChariotTTSService`, a drop-in Pipecat `TTSService`. Copy this one file into any Pipecat project.
-- **`bot.py`**: a complete browser voice agent using it. Speak, and it answers in a Chariot voice; interrupt it mid-sentence and it stops immediately.
+- **`bot.py`**: a complete browser voice agent using it. Speak, and it answers in a Chariot voice; speaking during a reply interrupts playback and synthesis.
 
 ## The demo
 
@@ -25,7 +25,7 @@ Silero VAD watches for you speaking while the agent is talking. When that happen
 
 ## Setup
 
-Python 3.10+ and a microphone (accessed through the browser).
+Python 3.11+ and a microphone (accessed through the browser).
 
 ```bash
 git clone https://github.com/Chariot-AI/chariot-integrations.git
@@ -39,6 +39,7 @@ cp .env.sample .env    # add your keys
 |---|---|
 | `CHARIOT_API_KEY` | Your Chariot API key, from [platform.chariot.in](https://platform.chariot.in) |
 | `CHARIOT_VOICE_ID` | The voice that answers, from `GET https://api.chariot.in/v1/voices` |
+| `CHARIOT_MODEL` | Defaults to `chariot-multilingual-v1`; choose a voice whose `models[].model` includes this model |
 | `OPENAI_API_KEY` | Used for speech-to-text and the LLM in this demo |
 
 ## Run
@@ -47,7 +48,7 @@ cp .env.sample .env    # add your keys
 python bot.py
 ```
 
-Open **http://localhost:7860**, click **Connect**, allow microphone access, and talk. `Ctrl+C` stops the server. Flags: `--host`, `--port`, and `--voice` to override the voice UUID at startup.
+Open **http://localhost:7860**, click **Connect**, allow microphone access, and talk. `Ctrl+C` stops the server. Flags: `--host`, `--port`, `--voice`, and `--model` override startup settings. Missing keys or voice IDs are reported at startup.
 
 ## Using the service in your own pipeline
 
@@ -57,6 +58,7 @@ from chariot_tts import ChariotTTSService
 tts = ChariotTTSService(
     api_key="...",       # or CHARIOT_API_KEY in the environment
     voice_id="...",      # or CHARIOT_VOICE_ID
+    model="chariot-multilingual-v1",  # or CHARIOT_MODEL; this is the default
     sample_rate=44100,
 )
 
@@ -75,7 +77,9 @@ Behaviour worth knowing:
 
 - **Streaming**: audio frames are yielded while the server is still generating. Output is 16-bit mono PCM at 44.1 kHz, and every frame carries the rate the server declares, so a change on the server side cannot mis-rate your audio.
 - **Interruptions**: one WebSocket per utterance; generator cancellation closes it. Nothing to configure.
-- **Errors**: failures surface as Pipecat `ErrorFrame`s rather than hanging the pipeline. An exhausted credit balance is reported as exactly that.
+- **Settings**: `settings=ChariotTTSService.Settings(voice=..., model=...)` takes precedence over constructor arguments and environment variables. Pipecat settings updates apply to the next utterance. Chariot detects language from the text.
+- **Errors**: server errors (including `audio.done.error`), premature closes, empty results, and receive timeouts surface as Pipecat `ErrorFrame`s. An exhausted credit balance is reported as exactly that. `receive_timeout=30.0` bounds connection setup and each wait for a WebSocket message.
+- **Metrics**: the demo enables Pipecat TTFB and character-usage metrics. TTFB measures synthesis start through the first complete PCM sample, including WebSocket connection setup. It is not a separate measurement of network latency; use the [latency tool](../../tools/latency) for transport measurements.
 - **Other deployments**: point `ws_url=` at any host serving the Chariot TTS WebSocket protocol.
 
 ## What to try
@@ -83,3 +87,11 @@ Behaviour worth knowing:
 - Interrupt mid-sentence: start speaking while it is talking.
 - Switch voices live: restart with `--voice <uuid>` and hear the difference.
 - Speak Hinglish: ask it something in mixed Hindi and English.
+
+## Check the integration
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The tests use a local WebSocket server and real Pipecat pipelines. They need no API keys and do not call production. They cover PCM streaming, model selection, server failures, stalled streams, and interruption followed by a new utterance. Demo tests check the UI, WebRTC signaling, and shutdown with a stand-in bot. The suite has been verified on Pipecat 1.7.0 and 1.12.0.

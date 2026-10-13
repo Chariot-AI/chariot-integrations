@@ -95,7 +95,7 @@ cp .env.sample .env   # add your key and voice id
 python tts.py "Hello from Chariot."
 ```
 
-Python 3.10+ throughout.
+Quickstarts and the latency tool require Python 3.10+. The Pipecat integration requires Python 3.11+.
 
 ---
 
