@@ -315,9 +315,11 @@ def run_group(transport, mode, args, factory=None):
 def parse_args():
     load_dotenv(Path(__file__).with_name(".env"))
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--transport", choices=["http", "websocket", "both"], default="both")
+    parser.add_argument("--transport", choices=["http", "websocket", "both"], default="both",
+                        help="http: POST /v1/tts/stream; websocket: /v1/tts/ws (default: both)")
     parser.add_argument("--connection", choices=["fresh", "reused", "both"], default="both")
-    parser.add_argument("--runs", type=int, default=10, help="Trials per transport and connection mode")
+    parser.add_argument("--runs", type=int, default=5,
+                        help="Trials per transport and connection mode (default: 5)")
     parser.add_argument("--model", default=os.getenv("CHARIOT_MODEL", "chariot-multilingual-v1"))
     parser.add_argument("--voice-id", default=os.getenv("CHARIOT_VOICE_ID"))
     parser.add_argument("--text", default=DEFAULT_TEXT)
@@ -365,6 +367,9 @@ def main():
     print(f"Model: {args.model} | voice: {args.voice_id} | speed: {args.speed} | "
           f"optimize_streaming_latency: {args.optimize_streaming_latency}")
     print(f"Text: {args.text!r}")
+    for transport in transports:
+        label = "HTTP streaming (http)" if transport == "http" else "WebSocket (websocket)"
+        print(f"Endpoint ({label}): {report['config'][f'{transport}_endpoint']}")
     print(f"{len(transports) * len(modes) * args.runs} sequential synthesis requests; "
           "normal API credits apply. No hidden warm-ups or retries.")
     for transport in transports:
