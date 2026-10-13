@@ -13,7 +13,7 @@ import os
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Optional
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import websockets
 from loguru import logger
@@ -23,6 +23,7 @@ from pipecat.services.settings import TTSSettings
 from pipecat.services.tts_service import TTSService
 
 DEFAULT_WS_URL = "wss://api.chariot.in/v1/tts/ws"
+DEFAULT_MODEL = "chariot-multilingual-v1"
 
 # Chariot's close code for an exhausted credit balance.
 CLOSE_CODE_NO_CREDITS = 4402
@@ -33,6 +34,8 @@ class ChariotTTSSettings(TTSSettings):
     """Settings for ChariotTTSService.
 
     ``voice`` is the Chariot voice UUID from ``GET /v1/voices``.
+    ``model`` is sent as Chariot's ``model_type`` query parameter.
+    Language is detected from the input text, so ``language`` is unused.
     """
 
     pass
@@ -54,8 +57,10 @@ class ChariotTTSService(TTSService):
         *,
         api_key: Optional[str] = None,
         voice_id: Optional[str] = None,
+        model: Optional[str] = None,
         ws_url: str = DEFAULT_WS_URL,
         sample_rate: Optional[int] = 44100,
+        receive_timeout: float = 30.0,
         settings: Optional[Settings] = None,
         **kwargs,
     ):
@@ -65,16 +70,22 @@ class ChariotTTSService(TTSService):
             api_key: Chariot API key. Falls back to ``CHARIOT_API_KEY``.
             voice_id: Voice UUID from ``GET /v1/voices``. Falls back to
                 ``CHARIOT_VOICE_ID``. ``settings.voice`` takes precedence.
+            model: Model name. Falls back to ``CHARIOT_MODEL``, then
+                ``chariot-multilingual-v1``. ``settings.model`` takes precedence.
             ws_url: WebSocket endpoint override.
             sample_rate: Output sample rate in Hz. Chariot serves 44100;
                 the server also declares the rate per session in ``audio.start``
                 and that declaration wins.
+            receive_timeout: Maximum seconds to wait for the next WebSocket
+                message before reporting a stalled stream.
             settings: Runtime-updatable settings; values here win over the
                 direct arguments.
             **kwargs: Additional arguments passed to the parent TTSService.
         """
         default_settings = self.Settings(
             voice=voice_id or os.environ.get("CHARIOT_VOICE_ID") or None,
+            model=model or os.environ.get("CHARIOT_MODEL") or DEFAULT_MODEL,
+            language=None,
         )
         if settings is not None:
             default_settings.apply_update(settings)
@@ -82,6 +93,10 @@ class ChariotTTSService(TTSService):
             raise ValueError(
                 "Chariot voice required: pass voice_id= or set CHARIOT_VOICE_ID"
             )
+        if not default_settings.model:
+            raise ValueError("Chariot model must not be empty")
+        if receive_timeout <= 0:
+            raise ValueError("receive_timeout must be positive")
 
         super().__init__(
             sample_rate=sample_rate,
@@ -97,6 +112,7 @@ class ChariotTTSService(TTSService):
                 "Chariot API key required: pass api_key= or set CHARIOT_API_KEY"
             )
         self._ws_url = ws_url
+        self._receive_timeout = receive_timeout
 
     def can_generate_metrics(self) -> bool:
         """Chariot TTS reports TTFB and character-usage metrics."""
@@ -115,31 +131,47 @@ class ChariotTTSService(TTSService):
         # The session is flush-driven: text buffers until input.done, which
         # synthesizes it as one piece. Pipecat has already aggregated the text
         # into a sensible utterance, so one piece is exactly right.
-        query = urlencode(
+        url = urlsplit(self._ws_url)
+        query = dict(parse_qsl(url.query))
+        query.update(
             {
                 "voice_id": self._settings.voice,
+                "model_type": self._settings.model,
                 "response_format": "pcm",
             }
         )
-        uri = f"{self._ws_url}?{query}"
+        uri = urlunsplit(url._replace(query=urlencode(query)))
 
         try:
             async with websockets.connect(
                 uri,
                 additional_headers={"chariotai-api-key": self._api_key},
                 max_size=None,
+                open_timeout=self._receive_timeout,
+                close_timeout=2,
             ) as ws:
                 await self.start_tts_usage_metrics(text)
                 await ws.send(json.dumps({"type": "input.text", "text": text}))
                 await ws.send(json.dumps({"type": "input.done"}))
 
                 sample_rate = self.sample_rate
-                async for message in ws:
+                received_audio = False
+                pending = b""
+                while True:
+                    message = await asyncio.wait_for(ws.recv(), self._receive_timeout)
                     if isinstance(message, bytes):
-                        await self.stop_ttfb_metrics()
+                        # WebSocket messages need not end on a 16-bit sample.
+                        pending += message
+                        complete_bytes = len(pending) - len(pending) % 2
+                        if not complete_bytes:
+                            continue
+                        if not received_audio:
+                            await self.stop_ttfb_metrics()
+                            received_audio = True
                         yield TTSAudioRawFrame(
-                            message, sample_rate, 1, context_id=context_id
+                            pending[:complete_bytes], sample_rate, 1, context_id=context_id
                         )
+                        pending = pending[complete_bytes:]
                         continue
 
                     event = json.loads(message)
@@ -149,6 +181,13 @@ class ChariotTTSService(TTSService):
                         # over the configured default.
                         sample_rate = event.get("sample_rate") or sample_rate
                     elif event_type == "session.done":
+                        if pending:
+                            yield ErrorFrame(error="Chariot TTS returned an incomplete PCM sample")
+                        elif not received_audio:
+                            yield ErrorFrame(error="Chariot TTS completed without audio")
+                        break
+                    elif event_type == "audio.done" and event.get("error"):
+                        yield ErrorFrame(error=f"Chariot TTS error: {event['error']}")
                         break
                     elif event_type == "error":
                         message_text = event.get("message", "unknown error")
@@ -157,11 +196,13 @@ class ChariotTTSService(TTSService):
         except asyncio.CancelledError:
             logger.debug(f"{self}: TTS generation cancelled")
             raise
-        except websockets.exceptions.ConnectionClosedError as exc:
+        except TimeoutError:
+            yield ErrorFrame(error="Chariot TTS timed out waiting for the stream")
+        except websockets.exceptions.ConnectionClosed as exc:
             if exc.rcvd is not None and exc.rcvd.code == CLOSE_CODE_NO_CREDITS:
                 reason = "credit balance exhausted"
             else:
-                reason = str(exc)
+                reason = f"before session.done: {exc}"
             yield ErrorFrame(error=f"Chariot TTS connection closed: {reason}")
         except Exception as exc:
             yield ErrorFrame(error=f"Chariot TTS connection failed: {exc}")

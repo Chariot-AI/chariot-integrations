@@ -22,8 +22,7 @@ from pipecat_ai_small_webrtc_prebuilt.frontend import SmallWebRTCPrebuiltUI
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import LLMRunFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -40,38 +39,47 @@ from pipecat.transports.smallwebrtc.request_handler import (
     SmallWebRTCRequestHandler,
 )
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
+from pipecat.workers.runner import WorkerRunner
 
 from chariot_tts import ChariotTTSService
 
 load_dotenv(override=True)
 
-parser = argparse.ArgumentParser(description="Pipecat voice agent with Chariot TTS")
-parser.add_argument("--host", default="localhost")
-parser.add_argument("--port", type=int, default=7860)
-parser.add_argument(
-    "--voice",
-    default=None,
-    help="Chariot voice UUID (defaults to CHARIOT_VOICE_ID from the environment)",
-)
-args = parser.parse_args()
-
 ICE_SERVERS = [IceServer(urls="stun:stun.l.google.com:19302")]
 
 webrtc_handler = SmallWebRTCRequestHandler(ice_servers=ICE_SERVERS)
 active_sessions: dict = {}
+bot_tasks: set[asyncio.Task] = set()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
-    await webrtc_handler.close()
+    # Fail at startup instead of leaving a connected browser with a silent bot.
+    ChariotTTSService(voice_id=app.state.voice, model=app.state.model)
+    if not os.getenv("OPENAI_API_KEY"):
+        raise ValueError("Set OPENAI_API_KEY for the demo's STT and LLM")
+    try:
+        yield
+    finally:
+        await webrtc_handler.close()
+        tasks = list(bot_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        active_sessions.clear()
 
 
 app = FastAPI(lifespan=lifespan)
+app.state.voice = None
+app.state.model = None
 app.mount("/client", SmallWebRTCPrebuiltUI)
 
 
-async def run_bot(webrtc_connection: SmallWebRTCConnection, voice: str | None = None):
+async def run_bot(
+    webrtc_connection: SmallWebRTCConnection,
+    voice: str | None = None,
+    model: str | None = None,
+):
     transport = SmallWebRTCTransport(
         webrtc_connection=webrtc_connection,
         params=TransportParams(
@@ -98,6 +106,7 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, voice: str | None = 
     tts = ChariotTTSService(
         api_key=os.getenv("CHARIOT_API_KEY"),
         voice_id=voice or os.getenv("CHARIOT_VOICE_ID"),
+        model=model,
         sample_rate=44100,
     )
 
@@ -119,9 +128,9 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, voice: str | None = 
         ]
     )
 
-    task = PipelineTask(
+    worker = PipelineWorker(
         pipeline,
-        params=PipelineParams(allow_interruptions=True),
+        params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
     )
 
     @transport.event_handler("on_client_connected")
@@ -133,15 +142,16 @@ async def run_bot(webrtc_connection: SmallWebRTCConnection, voice: str | None = 
                 "content": "Greet the user warmly and let them know they can start talking.",
             }
         )
-        await task.queue_frames([LLMRunFrame()])
+        await worker.queue_frames([LLMRunFrame()])
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info("Client disconnected")
-        await task.cancel()
+        await worker.cancel()
 
-    runner = PipelineRunner(handle_sigint=False)
-    await runner.run(task)
+    runner = WorkerRunner(handle_sigint=False)
+    await runner.add_workers(worker)
+    await runner.run()
 
 
 @app.get("/", include_in_schema=False)
@@ -179,7 +189,18 @@ async def session_proxy(session_id: str, path: str, request: Request):
             )
 
             async def run_bot_task(connection):
-                asyncio.create_task(run_bot(connection, voice=args.voice))
+                task = asyncio.create_task(
+                    run_bot(connection, voice=app.state.voice, model=app.state.model)
+                )
+                bot_tasks.add(task)
+
+                def on_done(task):
+                    bot_tasks.discard(task)
+                    active_sessions.pop(session_id, None)
+                    if not task.cancelled() and task.exception() is not None:
+                        logger.error(f"Voice session failed: {task.exception()}")
+
+                task.add_done_callback(on_done)
 
             return await webrtc_handler.handle_web_request(webrtc_request, run_bot_task)
         elif request.method == "PATCH":
@@ -194,5 +215,13 @@ async def session_proxy(session_id: str, path: str, request: Request):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Pipecat voice agent with Chariot TTS")
+    parser.add_argument("--host", default="localhost")
+    parser.add_argument("--port", type=int, default=7860)
+    parser.add_argument("--voice", help="Voice UUID (defaults to CHARIOT_VOICE_ID)")
+    parser.add_argument("--model", help="Model name (defaults to CHARIOT_MODEL or multilingual v1)")
+    args = parser.parse_args()
+    app.state.voice = args.voice
+    app.state.model = args.model
     logger.info(f"Open http://{args.host}:{args.port} in your browser")
     uvicorn.run(app, host=args.host, port=args.port)
