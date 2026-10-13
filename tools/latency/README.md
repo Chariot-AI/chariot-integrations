@@ -18,11 +18,16 @@ Use `--model chariot-v0` to select the earlier model when supported by your voic
 The API validates model availability, speeds, and input limits; the tool never
 substitutes another model. See [Models](https://docs.chariot.in/guides/models).
 
-By default, the tool makes **40 sequential synthesis requests**: 10 fresh and
-10 on a shared connection for each transport. Normal API credits apply. There
+Both streaming endpoints are included by default: `http` rows measure
+`POST /v1/tts/stream`, and `websocket` rows measure `/v1/tts/ws`. The selected
+endpoints are printed before the trials.
+
+By default, the tool makes **20 sequential synthesis requests**: 5 fresh and
+5 on a shared connection for each transport. Each shared-connection group has
+one `first` request and four `reused` requests. Normal API credits apply. There
 are no hidden warm-ups, retries, parallel requests, or artificial text delays.
 It prints each measured trial and connection timing, followed by min, p50, p90,
-p99, and max TTFB. Failed and skipped requests are counted separately. Ten samples
+p99, and max TTFB. Failed and skipped requests are counted separately. Five samples
 are a quick check, not a reliable estimate of rare tail latency. With fewer
 than 100 successful samples, nearest-rank p99 is simply the observed maximum.
 
@@ -30,13 +35,13 @@ than 100 successful samples, nearest-rank p99 is simply the observed maximum.
 
 ```bash
 # HTTP streaming, established connection after the first request
-python latency.py --transport http --connection reused --runs 10
+python latency.py --transport http --connection reused --runs 5
 
 # WebSocket, new connection for every generation
 python latency.py --transport websocket --connection fresh --runs 5
 
 # Both transports and modes, custom input, optional audio and raw results
-python latency.py --transport both --connection both --runs 10 \
+python latency.py --transport both --connection both --runs 5 \
   --model chariot-multilingual-v1 --text "नमस्ते, आपका दिन कैसा चल रहा है?" \
   --save-audio audio --json results.json
 ```
@@ -45,7 +50,7 @@ python latency.py --transport both --connection both --runs 10 \
 |---|---|---|
 | `--transport` | `both` | `http`, `websocket`, or `both` |
 | `--connection` | `both` | `fresh`, `reused`, or `both` |
-| `--runs` | `10` | Requests per transport/mode, including the first reused-mode request |
+| `--runs` | `5` | Requests per transport/mode, including the first reused-mode request |
 | `--model` | `CHARIOT_MODEL` or `chariot-multilingual-v1` | Sent explicitly as `model_type` |
 | `--voice-id` | `CHARIOT_VOICE_ID` | Voice UUID |
 | `--text` | Short English test sentence | Same complete text for every request; surrounding whitespace trimmed |
