@@ -7,7 +7,7 @@ The streaming session every real-time integration builds on: feed text in as you
 Connect to:
 
 ```
-wss://api.chariot.in/v1/tts/ws?voice_id=<uuid>&response_format=pcm
+wss://api.chariot.in/v1/tts/ws?voice_id=<uuid>&response_format=pcm&model_type=chariot-multilingual-v1
 ```
 
 with the `chariotai-api-key` header, then exchange JSON control messages and binary audio frames.
@@ -45,6 +45,7 @@ Full text at once, one continuous generation at `input.done`:
 
 ```bash
 python streaming.py "Hello. How are you today? I hope your day is going well."
+python streaming.py "Hello from Chariot." --model chariot-multilingual-v1
 ```
 
 Agent mode: the text is drip-fed in small fragments the way an LLM emits tokens, with a flush after each, so you can watch audio arrive progressively:
@@ -54,3 +55,13 @@ python streaming.py "Hello. How are you today? I hope your day is going well." -
 ```
 
 Both write `out.wav` and print every control event as it arrives, so you can watch the session happen.
+
+`--model` overrides `CHARIOT_MODEL` (default: `chariot-multilingual-v1`). Select a voice whose
+`models[].model` includes the chosen model. The connection sends it as
+`model_type`; it stays fixed for the session. Open another connection to change
+models. See [Models](https://docs.chariot.in/guides/models).
+
+Use the [latency tool](../../tools/latency) to measure first audio on fresh and
+reused connections. The quickstart's `--stream` mode includes a deliberate
+50 ms text-pacing delay, so it is an integration demonstration rather than a
+latency measurement.

@@ -14,6 +14,7 @@ build/
 *.wav
 *.pcm
 *.mp3
+tools/latency/results*.json
 
 # Local-only tooling and agent instructions; never published
 .local/
