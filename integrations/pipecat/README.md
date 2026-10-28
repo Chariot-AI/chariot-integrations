@@ -1,9 +1,10 @@
 # Chariot + Pipecat
 
-Use Chariot's streaming text-to-speech inside a [Pipecat](https://github.com/pipecat-ai/pipecat) pipeline.
+Use Chariot's streaming speech-to-text and text-to-speech inside a [Pipecat](https://github.com/pipecat-ai/pipecat) pipeline.
 
-Two things live here:
+Three things live here:
 
+- **`chariot_stt.py`**: `ChariotSTTService`, a drop-in streaming Pipecat `STTService`. Copy this one file into any Pipecat project.
 - **`chariot_tts.py`**: `ChariotTTSService`, a drop-in Pipecat `TTSService`. Copy this one file into any Pipecat project.
 - **`bot.py`**: a complete browser voice agent using it. Speak, and it answers in a Chariot voice; speaking during a reply interrupts playback and synthesis.
 
@@ -14,7 +15,7 @@ Browser microphone
         v
 SmallWebRTCTransport (WebRTC)
         v
-OpenAI STT  ->  OpenAI LLM  ->  Chariot TTS
+Chariot STT ->  OpenAI LLM  ->  Chariot TTS
                                      v
                         SmallWebRTCTransport (WebRTC)
                                      v
@@ -40,7 +41,7 @@ cp .env.sample .env    # add your keys
 | `CHARIOT_API_KEY` | Your Chariot API key, from [platform.chariot.in](https://platform.chariot.in) |
 | `CHARIOT_VOICE_ID` | The voice that answers, from `GET https://api.chariot.in/v1/voices` |
 | `CHARIOT_MODEL` | Defaults to `chariot-multilingual-v1`; choose a voice whose `models[].model` includes this model |
-| `OPENAI_API_KEY` | Used for speech-to-text and the LLM in this demo |
+| `OPENAI_API_KEY` | Used for the LLM only in this demo |
 
 ## Run
 
@@ -50,7 +51,49 @@ python bot.py
 
 Open **http://localhost:7860**, click **Connect**, allow microphone access, and talk. `Ctrl+C` stops the server. Flags: `--host`, `--port`, `--voice`, and `--model` override startup settings. Missing keys or voice IDs are reported at startup.
 
-## Using the service in your own pipeline
+## Streaming speech-to-text
+
+```python
+from chariot_stt import ChariotSTTService
+
+stt = ChariotSTTService(
+    api_key="...",  # or CHARIOT_API_KEY in the environment
+    commit_strategy="manual",
+    settings=ChariotSTTService.Settings(
+        model="chariot-1-asr-realtime",
+        language=None,  # automatic detection; or a language code such as "hi"
+        mode="balanced",
+        style="codemix",
+        include_timestamps=True,
+    ),
+)
+```
+
+Place `stt` between `transport.input()` and the user aggregator, as shown below. Configure the user aggregator with `LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer())`, as the demo does. Its VAD frames travel upstream to the STT service. The service uses the pipeline's input sample rate; audio must be mono PCM16 at 8000, 16000, 22050, 24000, 32000, 44100, or 48000 Hz.
+
+- **One connection per call**: wait for `session.started`, then stream audio while receiving transcripts concurrently. Interrupting an assistant reply leaves this listening connection open.
+- **Manual commits (default)**: Pipecat's `VADUserStoppedSpeakingFrame` sends `input.commit`. The reply becomes a finalized `TranscriptionFrame`. This needs a Pipecat VAD analyzer or another processor emitting those frames.
+- **Server VAD**: use `commit_strategy="vad"`. Chariot decides transcript segment boundaries; Pipecat's VAD and turn strategies still decide when the conversational user turn ends and when to interrupt. Server speech events are exposed as callbacks, not injected as a second set of Pipecat VAD frames.
+- **Transcripts**: deltas become accumulated `InterimTranscriptionFrame` text. Committed text replaces those partials in a `TranscriptionFrame`; never append both. The original event, including optional word timestamps, is in `frame.result`. Final closing text is only the uncommitted tail.
+- **Options**: `balanced` or `high_accuracy`, `codemix` or `native`, and a supported language code or `None`. A `Language` enum also works. These settings are fixed when the socket connects; runtime changes report an error instead of pretending to apply.
+- **Lifecycle**: `EndFrame` sends `input.done` and drains the final transcript; `CancelFrame` closes immediately. Connection and fatal server errors end the pipeline. No automatic reconnect/replay is performed because it could lose or duplicate speech. An idle connection uses JSON keepalives rather than generated silence.
+- **Timeouts**: `connect_timeout=15`, `finalize_timeout=65` seconds, and `keepalive_interval=15` seconds are configurable. Finalization is bounded for each manual commit and at end of input. Handle `on_session_expiring` to end or replace a call before the public session limit.
+- **Metrics**: Pipecat's STT base records transcription timing and audio usage; TTS metrics are described below.
+
+Server VAD constructor options:
+
+| Option | Default | Range |
+|---|---|---|
+| `silence_duration_ms` | 500 | 100 to 10000 ms |
+| `vad_threshold` | 0.5 | 0.05 to 0.95 |
+| `min_speech_duration_ms` | 250 | 0 to 5000 ms |
+| `prefix_padding_ms` | 300 | 0 to 2000 ms |
+
+Callbacks registered with `@stt.event_handler(...)`: `on_connected(service)`, `on_disconnected(service)`, `on_connection_error(service, message)`, `on_speech_started(service, event)`, `on_speech_stopped(service, event)`, and `on_session_expiring(service, event)`. Speech events are requested in server VAD mode.
+
+The demo reads `CHARIOT_ASR_LANGUAGE`, `CHARIOT_ASR_MODE`, `CHARIOT_ASR_STYLE`, and `CHARIOT_ASR_COMMIT_STRATEGY`; defaults are shown in `.env.sample`. File and durable batch transcription are separate HTTP workflows: see [asr-http](../../quickstarts/asr-http) and [asr-batch](../../quickstarts/asr-batch).
+
+## Using the services in your own pipeline
 
 ```python
 from chariot_tts import ChariotTTSService
@@ -64,7 +107,7 @@ tts = ChariotTTSService(
 
 pipeline = Pipeline([
     transport.input(),
-    stt,                 # any Pipecat STT service
+    stt,                 # ChariotSTTService configured above
     user_aggregator,
     llm,                 # any Pipecat LLM service
     tts,                 # Chariot speaks the replies
@@ -94,4 +137,4 @@ Behaviour worth knowing:
 python -m unittest discover -s tests -v
 ```
 
-The tests use a local WebSocket server and real Pipecat pipelines. They need no API keys and do not call production. They cover PCM streaming, model selection, server failures, stalled streams, and interruption followed by a new utterance. Demo tests check the UI, WebRTC signaling, and shutdown with a stand-in bot. The suite has been verified on Pipecat 1.7.0 and 1.12.0.
+The tests use a local WebSocket server and real Pipecat pipelines. They need no API keys and do not call production. They cover STT manual/server VAD commits, interim and final text, timestamps, LLM context delivery, bounded finalization, invalid credentials, and TTS streaming and interruption. Demo tests check the UI, WebRTC signaling, and shutdown with a stand-in bot. The suite has been verified on Pipecat 1.7.0 and 1.12.0.

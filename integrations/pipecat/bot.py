@@ -1,6 +1,6 @@
 """A browser voice agent that speaks with a Chariot voice.
 
-Pipeline: browser microphone -> OpenAI STT -> OpenAI LLM -> Chariot TTS ->
+Pipeline: browser microphone -> Chariot STT -> OpenAI LLM -> Chariot TTS ->
 browser speakers, all over WebRTC with Silero VAD driving interruptions.
 
 Run `python bot.py`, open http://localhost:7860, click Connect, and talk.
@@ -29,7 +29,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.services.openai.llm import OpenAILLMService
-from pipecat.services.openai.stt import OpenAISTTService
+from chariot_stt import ChariotSTTService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
 from pipecat.transports.smallwebrtc.request_handler import (
@@ -52,12 +52,25 @@ active_sessions: dict = {}
 bot_tasks: set[asyncio.Task] = set()
 
 
+def create_stt():
+    return ChariotSTTService(
+        api_key=os.getenv("CHARIOT_API_KEY"),
+        commit_strategy=os.getenv("CHARIOT_ASR_COMMIT_STRATEGY", "manual"),
+        settings=ChariotSTTService.Settings(
+            language=os.getenv("CHARIOT_ASR_LANGUAGE") or None,
+            mode=os.getenv("CHARIOT_ASR_MODE", "balanced"),
+            style=os.getenv("CHARIOT_ASR_STYLE", "codemix"),
+        ),
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Fail at startup instead of leaving a connected browser with a silent bot.
     ChariotTTSService(voice_id=app.state.voice, model=app.state.model)
+    create_stt()
     if not os.getenv("OPENAI_API_KEY"):
-        raise ValueError("Set OPENAI_API_KEY for the demo's STT and LLM")
+        raise ValueError("Set OPENAI_API_KEY for the demo's LLM")
     try:
         yield
     finally:
@@ -88,7 +101,7 @@ async def run_bot(
         ),
     )
 
-    stt = OpenAISTTService(api_key=os.getenv("OPENAI_API_KEY"))
+    stt = create_stt()
 
     llm = OpenAILLMService(
         api_key=os.getenv("OPENAI_API_KEY"),
@@ -119,7 +132,7 @@ async def run_bot(
     pipeline = Pipeline(
         [
             transport.input(),       # Browser microphone input
-            stt,                     # Speech to text (OpenAI)
+            stt,                     # Speech to text (Chariot)
             user_aggregator,         # Accumulate the user's turn
             llm,                     # Text to response (OpenAI)
             tts,                     # Text to speech (Chariot)

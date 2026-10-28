@@ -1,10 +1,10 @@
-# Pipecat with OpenAI STT/LLM, Silero VAD, WebRTC transport, and server
+# Pipecat with OpenAI LLM, Silero VAD, WebRTC transport, and server
 pipecat-ai[openai,silero,webrtc,runner]>=1.7,<2
 
 # Prebuilt browser UI for the SmallWebRTC transport
 pipecat-ai-small-webrtc-prebuilt>=2.4.0
 
-# Chariot TTS service (chariot_tts.py in this folder) talks WebSocket
+# Chariot STT and TTS services use WebSockets
 websockets>=14.0
 
 # Utilities

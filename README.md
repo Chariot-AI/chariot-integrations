@@ -19,7 +19,7 @@
 
 # Chariot Integrations
 
-Runnable code for building with [Chariot](https://chariot.in), the voice AI platform built for India: lifelike, streaming text-to-speech in Indian languages and English, served from India for the latency real-time voice needs.
+Runnable code for building with [Chariot](https://chariot.in), the voice AI platform built for India: streaming speech-to-text and lifelike text-to-speech in Indian languages and English, served from India for the latency real-time voice needs.
 
 The repo includes:
 
@@ -52,12 +52,15 @@ curl -X POST https://api.chariot.in/v1/tts \
 | [tts-http](./quickstarts/tts-http) | `POST /v1/tts` | One request in, one WAV out. The right tool for files, batch jobs, notifications |
 | [tts-stream](./quickstarts/tts-stream) | `POST /v1/tts/stream` | Send full text and receive audio progressively over HTTP |
 | [tts-websocket](./quickstarts/tts-websocket) | `wss:// ... /v1/tts/ws` | The streaming session: feed text in as you get it, read audio out while it generates. The API every real-time integration builds on |
+| [asr-websocket](./quickstarts/asr-websocket) | `wss:// ... /v1/asr/ws` | Live transcription with manual commits or server VAD |
+| [asr-http](./quickstarts/asr-http) | `POST /v1/asr/transcribe` | Short file or URL to a complete transcript (Beta) |
+| [asr-batch](./quickstarts/asr-batch) | `POST /v1/asr/batches` | Durable single-file or multi-URL jobs with polling (Beta) |
 
 ## Integrations
 
 | | Status | What ships |
 |---|---|---|
-| [Pipecat](./integrations/pipecat) | Available | `ChariotTTSService`, a drop-in `TTSService`, plus a browser voice agent you can talk to and interrupt |
+| [Pipecat](./integrations/pipecat) | Available | `ChariotSTTService` and `ChariotTTSService` plus a browser voice agent you can talk to and interrupt |
 | LiveKit Agents | Planned | TTS plugin for LiveKit's agent framework |
 
 Building against a framework we have not covered? Open an issue, or wire the WebSocket API directly: the [tts-websocket quickstart](./quickstarts/tts-websocket) documents the full protocol.
