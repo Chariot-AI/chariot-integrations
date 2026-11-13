@@ -24,7 +24,7 @@ Runnable code for building with [Chariot](https://chariot.in), the voice AI plat
 The repo includes:
 
 - **[Quickstarts](./quickstarts)**: the smallest working program for each API surface. Start here to see the API itself.
-- **[Integrations](./integrations)**: Chariot inside the frameworks you already build voice apps with. Each one ships a drop-in service class plus a runnable demo.
+- **[Integrations](./integrations)**: Chariot inside the frameworks you already build voice apps with. Each one pairs the Chariot services for that framework with a runnable demo.
 - **[Latency tool](./tools/latency)**: measure HTTP streaming and WebSocket first-audio latency, with model selection and separate fresh/reused connection results.
 
 **API docs:** [docs.chariot.in](https://docs.chariot.in/api-reference/introduction) · **Console and API keys:** [platform.chariot.in](https://platform.chariot.in) · **Site:** [chariot.in](https://chariot.in)

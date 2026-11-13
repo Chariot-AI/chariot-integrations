@@ -18,7 +18,7 @@ from pipecat.transports.smallwebrtc.request_handler import SmallWebRTCRequestHan
 class BotTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_keys_fail_at_startup(self):
         with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(ValueError, "Chariot voice required"):
+            with self.assertRaisesRegex(ValueError, "CHARIOT_API_KEY"):
                 async with bot.app.router.lifespan_context(bot.app):
                     self.fail("Startup should reject missing configuration")
 

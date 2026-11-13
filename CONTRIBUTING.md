@@ -4,7 +4,7 @@ Thanks for helping developers build with Chariot. A few rules keep this repo use
 
 ## What an example looks like
 
-Each example is one self-contained folder. Quickstarts (under `quickstarts/`) teach one API surface; integrations (under `integrations/`) ship a drop-in service class for one framework plus a runnable demo. Customer diagnostics live under `tools/` with documented measurement boundaries and the same self-contained setup.
+Each example is one self-contained folder. Quickstarts (under `quickstarts/`) teach one API surface; integrations (under `integrations/`) pair the Chariot services for one framework with a runnable demo. Customer diagnostics live under `tools/` with documented measurement boundaries and the same self-contained setup.
 
 ```
 quickstarts/<api-surface>/     or     integrations/<framework>/     or     tools/<tool>/
