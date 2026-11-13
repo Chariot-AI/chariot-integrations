@@ -1,11 +1,11 @@
+# Chariot speech-to-text and text-to-speech for Pipecat
+pipecat-chariot>=0.2.0
+
 # Pipecat with OpenAI LLM, Silero VAD, WebRTC transport, and server
-pipecat-ai[openai,silero,webrtc,runner]>=1.7,<2
+pipecat-ai[openai,silero,webrtc,runner]>=1.13,<2
 
 # Prebuilt browser UI for the SmallWebRTC transport
 pipecat-ai-small-webrtc-prebuilt>=2.4.0
-
-# Chariot STT and TTS services use WebSockets
-websockets>=14.0
 
 # Utilities
 python-dotenv>=1.0

@@ -1,7 +1,8 @@
-"""A browser voice agent that speaks with a Chariot voice.
+"""A browser voice agent that listens and speaks with Chariot.
 
 Pipeline: browser microphone -> Chariot STT -> OpenAI LLM -> Chariot TTS ->
-browser speakers, all over WebRTC with Silero VAD driving interruptions.
+browser speakers, all over WebRTC with Silero VAD driving turns and
+interruptions. The Chariot services come from the pipecat-chariot package.
 
 Run `python bot.py`, open http://localhost:7860, click Connect, and talk.
 """
@@ -29,7 +30,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.services.openai.llm import OpenAILLMService
-from chariot_stt import ChariotSTTService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
 from pipecat.transports.smallwebrtc.request_handler import (
@@ -40,8 +40,7 @@ from pipecat.transports.smallwebrtc.request_handler import (
 )
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 from pipecat.workers.runner import WorkerRunner
-
-from chariot_tts import ChariotTTSService
+from pipecat_chariot import ChariotSTTService, ChariotTTSService
 
 load_dotenv(override=True)
 
@@ -53,6 +52,7 @@ bot_tasks: set[asyncio.Task] = set()
 
 
 def create_stt():
+    """Chariot speech-to-text, configured from the environment (see .env.sample)."""
     return ChariotSTTService(
         api_key=os.getenv("CHARIOT_API_KEY"),
         commit_strategy=os.getenv("CHARIOT_ASR_COMMIT_STRATEGY", "manual"),
@@ -64,13 +64,24 @@ def create_stt():
     )
 
 
+def create_tts(voice: str | None = None, model: str | None = None):
+    """Chariot text-to-speech. Without a voice it uses a Chariot stock voice."""
+    return ChariotTTSService(
+        api_key=os.getenv("CHARIOT_API_KEY"),
+        voice_id=voice or os.getenv("CHARIOT_VOICE_ID") or None,
+        model=model or os.getenv("CHARIOT_MODEL") or None,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Fail at startup instead of leaving a connected browser with a silent bot.
-    ChariotTTSService(voice_id=app.state.voice, model=app.state.model)
-    create_stt()
+    if not os.getenv("CHARIOT_API_KEY"):
+        raise ValueError("Set CHARIOT_API_KEY, from https://platform.chariot.in")
     if not os.getenv("OPENAI_API_KEY"):
         raise ValueError("Set OPENAI_API_KEY for the demo's LLM")
+    create_tts(app.state.voice, app.state.model)
+    create_stt()
     try:
         yield
     finally:
@@ -114,14 +125,9 @@ async def run_bot(
         ),
     )
 
-    # The Chariot voice that answers. 44.1 kHz PCM streams back while the
-    # server is still generating, so speech starts before the sentence ends.
-    tts = ChariotTTSService(
-        api_key=os.getenv("CHARIOT_API_KEY"),
-        voice_id=voice or os.getenv("CHARIOT_VOICE_ID"),
-        model=model,
-        sample_rate=44100,
-    )
+    # The Chariot voice that answers. Audio streams back while the server is
+    # still generating, and an interruption cancels just the current turn.
+    tts = create_tts(voice, model)
 
     context = LLMContext()
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
@@ -228,7 +234,7 @@ async def session_proxy(session_id: str, path: str, request: Request):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Pipecat voice agent with Chariot TTS")
+    parser = argparse.ArgumentParser(description="Pipecat voice agent with Chariot STT and TTS")
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--voice", help="Voice UUID (defaults to CHARIOT_VOICE_ID)")
