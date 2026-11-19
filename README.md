@@ -61,7 +61,7 @@ curl -X POST https://api.chariot.in/v1/tts \
 | | Status | What ships |
 |---|---|---|
 | [Pipecat](./integrations/pipecat) | Available | `ChariotSTTService` and `ChariotTTSService` plus a browser voice agent you can talk to and interrupt |
-| LiveKit Agents | Planned | TTS plugin for LiveKit's agent framework |
+| [LiveKit Agents](./integrations/livekit) | Available | `chariot.STT()` and `chariot.TTS()` plus a voice agent you can talk to in your terminal and interrupt |
 
 Building against a framework we have not covered? Open an issue, or wire the WebSocket API directly: the [tts-websocket quickstart](./quickstarts/tts-websocket) documents the full protocol.
 
