@@ -1,0 +1,8 @@
+# Chariot speech-to-text and text-to-speech for LiveKit Agents
+livekit-plugins-chariot>=0.1.1
+
+# LiveKit Agents with OpenAI LLM and Silero VAD
+livekit-agents[openai,silero]>=1.8.12,<2
+
+# Utilities
+python-dotenv>=1.0
